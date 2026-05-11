@@ -21,6 +21,25 @@ function notExists(t, files) {
 	}
 }
 
+function createUndeletableFile(t) {
+	const directory = path.join(t.context.tmp, 'locked');
+	const filePath = path.join(directory, 'index.html');
+
+	fs.mkdirSync(directory);
+	fs.writeFileSync(filePath, '');
+	fs.chmodSync(directory, 0o555);
+
+	t.teardown(() => {
+		fs.chmodSync(directory, 0o755);
+	});
+
+	return 'locked/index.html';
+}
+
+function assertPermissionDenied(t, error) {
+	t.regex(error.message, /eacces|eperm|permission denied/i);
+}
+
 const fixtures = [
 	'1.tmp',
 	'2.tmp',
@@ -85,6 +104,38 @@ test('return deleted files - sync', t => {
 	);
 });
 
+test('reports removal failures - async', async t => {
+	if (process.platform === 'win32' || process.getuid?.() === 0) {
+		t.pass();
+		return;
+	}
+
+	const file = createUndeletableFile(t);
+	const error = await t.throwsAsync(deleteAsync(file, {
+		cwd: t.context.tmp,
+		force: true,
+	}));
+
+	assertPermissionDenied(t, error);
+});
+
+test('reports removal failures - sync', t => {
+	if (process.platform === 'win32' || process.getuid?.() === 0) {
+		t.pass();
+		return;
+	}
+
+	const file = createUndeletableFile(t);
+	const error = t.throws(() => {
+		deleteSync(file, {
+			cwd: t.context.tmp,
+			force: true,
+		});
+	});
+
+	assertPermissionDenied(t, error);
+});
+
 test('don\'t delete files, but return them - async', async t => {
 	const deletedFiles = await deleteAsync(['*.tmp', '!1*'], {
 		cwd: t.context.tmp,
@@ -114,6 +165,11 @@ test('don\'t delete files, but return them - sync', t => {
 // Currently this is only testable locally on macOS.
 // https://github.com/sindresorhus/del/issues/68
 test('does not throw EINVAL - async', async t => {
+	if (process.platform === 'win32') {
+		t.pass();
+		return;
+	}
+
 	await deleteAsync('**/*', {
 		cwd: t.context.tmp,
 		dot: true,
@@ -149,6 +205,11 @@ test('does not throw EINVAL - async', async t => {
 });
 
 test('does not throw EINVAL - sync', t => {
+	if (process.platform === 'win32') {
+		t.pass();
+		return;
+	}
+
 	deleteSync('**/*', {
 		cwd: t.context.tmp,
 		dot: true,
